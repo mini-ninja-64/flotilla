@@ -7,8 +7,10 @@ import (
 	"net"
 	"net/http"
 	"sync"
+	"time"
 
 	"github.com/mini-ninja-64/flotilla/internal/kube"
+	"github.com/mini-ninja-64/flotilla/internal/ui"
 	"github.com/mini-ninja-64/flotilla/internal/util"
 	"github.com/spf13/cobra"
 	v1 "k8s.io/api/core/v1"
@@ -28,33 +30,73 @@ type PodHttpResponse struct {
 type ClientCloser = func()
 type ClientFactory = func(*PodRequest) (*http.Client, ClientCloser, error)
 
-func requestWithClient(clientFactory ClientFactory, request *PodRequest) *PodHttpResponse {
+type LengthWriter struct {
+	currentLength uint64
+	writeCallback func(increase uint64, currentLength uint64)
+}
+
+func (progressBuffer *LengthWriter) Write(bytes []byte) (int, error) {
+	bytesLength := len(bytes)
+	bytesLengthUnsigned := uint64(len(bytes))
+	progressBuffer.currentLength += bytesLengthUnsigned
+
+	progressBuffer.writeCallback(bytesLengthUnsigned, progressBuffer.currentLength)
+
+	return bytesLength, nil
+}
+
+func NewLengthWriter(writeCallback func(increase uint64, currentLength uint64)) *LengthWriter {
+	return &LengthWriter{
+		writeCallback: writeCallback,
+	}
+}
+
+func requestWithClient(clientFactory ClientFactory, request *PodRequest) (*http.Response, error) {
 	httpClient, closer, err := clientFactory(request)
 	if err != nil {
-		return &PodHttpResponse{Error: err, Pod: request.Pod}
+		return nil, err
 	}
 	if closer != nil {
 		defer closer()
 	}
 
-	response, err := httpClient.Do(request.Request)
-	if err != nil {
-		return &PodHttpResponse{Error: err, Pod: request.Pod}
-	}
-	return &PodHttpResponse{Response: response, Pod: request.Pod}
+	return httpClient.Do(request.Request)
 }
 
 func requestsWithClient(clientFactory ClientFactory, requests []PodRequest) []*PodHttpResponse {
 	var wg sync.WaitGroup
-	responses := make([]*PodHttpResponse, len(requests))
+	requestCount := uint16(len(requests))
+	responses := make([]*PodHttpResponse, requestCount)
+
+	progressBars := ui.MultiLineProgressBars(requestCount)
 	for idx, req := range requests {
 		wg.Add(1)
 		go func() {
-			responses[idx] = requestWithClient(clientFactory, &req)
+			response, err := requestWithClient(clientFactory, &req)
+			if err != nil {
+				println(err.Error())
+			}
+			defer response.Body.Close()
+
+			contentLength := float64(response.ContentLength)
+			index := uint64(idx)
+
+			bodyBuffer := NewLengthWriter(func(uint64, currentLength uint64) {
+				// println(float64(currentLength)/contentLength)
+				progressBars.SetPosition(index, float64(currentLength)/contentLength)
+				time.Sleep(1 * time.Second)
+			})
+
+			teeReader := io.TeeReader(response.Body, bodyBuffer)
+			// TODO: use body
+			io.ReadAll(teeReader)
 			wg.Done()
 		}()
 	}
+
+	go progressBars.Run()
 	wg.Wait()
+	// progressBars.SetCompleted()
 	return responses
 }
 
@@ -181,16 +223,15 @@ func Cmd() *cobra.Command {
 				}
 				responses = requestsWithClient(outOfClusterHttpClientFactory, requests)
 			}
+			// println(responses)
 			// TODO: add proper ui instead of temporary printout
 			for _, response := range responses {
-				if response.Error != nil {
-					println(response.Pod.Name + ": " + response.Error.Error())
-				} else if response.Response.Body == nil {
-					println(response.Pod.Name + ": " + string(response.Response.StatusCode))
-				} else {
-					bodyBytes, _ := io.ReadAll(response.Response.Body)
-					println(response.Pod.Name + ": " + string(bodyBytes))
-				}
+				println(response == nil)
+				// if response.Error != nil {
+				// 	// println(response.Pod.Name + ": " + response.Error.Error())
+				// } else {
+				// 	// println(response.Pod.Name + ": " + strconv.Itoa(response.Response.StatusCode))
+				// }
 			}
 			return nil
 		},
