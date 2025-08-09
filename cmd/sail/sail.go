@@ -7,7 +7,6 @@ import (
 	"net"
 	"net/http"
 	"sync"
-	"time"
 
 	"github.com/mini-ninja-64/flotilla/internal/kube"
 	"github.com/mini-ninja-64/flotilla/internal/ui"
@@ -24,6 +23,7 @@ type PodHttpResponse struct {
 	Response *http.Response
 	Error    error
 	Pod      *v1.Pod
+	Body     []byte
 }
 
 // TODO: Maybe a `Closable“ interface is more go-ish 🤔
@@ -64,39 +64,56 @@ func requestWithClient(clientFactory ClientFactory, request *PodRequest) (*http.
 }
 
 func requestsWithClient(clientFactory ClientFactory, requests []PodRequest) []*PodHttpResponse {
-	var wg sync.WaitGroup
-	requestCount := uint16(len(requests))
+	var wgReq sync.WaitGroup
+	requestCount := len(requests)
 	responses := make([]*PodHttpResponse, requestCount)
 
-	progressBars := ui.MultiLineProgressBars(requestCount)
+	progressTrackers := ui.NewProgressTrackers()
+	progressBars := make([]*ui.ProgressBar, requestCount)
+	for i, request := range requests {
+		progressBars[i] = progressTrackers.AddProgressBar(request.Pod.Name)
+	}
 	for idx, req := range requests {
-		wg.Add(1)
+		wgReq.Add(1)
 		go func() {
 			response, err := requestWithClient(clientFactory, &req)
 			if err != nil {
 				println(err.Error())
 			}
+
 			defer response.Body.Close()
 
 			contentLength := float64(response.ContentLength)
+			if contentLength < 0 {
+				// println("unknown content length")
+				// TODO: Handle with spinner
+			}
 			index := uint64(idx)
 
 			bodyBuffer := NewLengthWriter(func(uint64, currentLength uint64) {
-				// println(float64(currentLength)/contentLength)
-				progressBars.SetPosition(index, float64(currentLength)/contentLength)
-				time.Sleep(1 * time.Second)
+				progressBars[index].SetPercentage(float64(currentLength) / contentLength)
 			})
 
 			teeReader := io.TeeReader(response.Body, bodyBuffer)
 			// TODO: use body
-			io.ReadAll(teeReader)
-			wg.Done()
+			body, _ := io.ReadAll(teeReader)
+			responses[idx] = &PodHttpResponse{
+				Body: body,
+			}
+			wgReq.Done()
 		}()
 	}
 
-	go progressBars.Run()
-	wg.Wait()
-	// progressBars.SetCompleted()
+	progressTrackers.RunAsync()
+	wgReq.Wait()
+
+	progressTrackers.Finish()
+	progressTrackers.Wait()
+
+	for _, res := range responses {
+		println(string(res.Body))
+	}
+
 	return responses
 }
 
