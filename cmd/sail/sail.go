@@ -71,7 +71,9 @@ func requestsWithClient(clientFactory ClientFactory, requests []PodRequest) []*P
 	progressTrackers := ui.NewProgressTrackers()
 	progressBars := make([]*ui.ProgressBar, requestCount)
 	for i, request := range requests {
-		progressBars[i] = progressTrackers.AddProgressBar(request.Pod.Name)
+		url := request.Request.URL.String()
+		subtitle := "(" + request.Request.Method + " " + url + ")"
+		progressBars[i] = progressTrackers.AddProgressBar(request.Pod.Name, subtitle)
 	}
 	for idx, req := range requests {
 		wgReq.Add(1)
@@ -100,6 +102,7 @@ func requestsWithClient(clientFactory ClientFactory, requests []PodRequest) []*P
 			responses[idx] = &PodHttpResponse{
 				Body: body,
 			}
+			progressBars[index].SetContent(string(body))
 			wgReq.Done()
 		}()
 	}
@@ -109,10 +112,6 @@ func requestsWithClient(clientFactory ClientFactory, requests []PodRequest) []*P
 
 	progressTrackers.Finish()
 	progressTrackers.Wait()
-
-	for _, res := range responses {
-		println(string(res.Body))
-	}
 
 	return responses
 }
@@ -215,12 +214,13 @@ func Cmd() *cobra.Command {
 				return err
 			}
 
-			var responses []*PodHttpResponse
+			// var responses []*PodHttpResponse
 			if kubeClient.ClientType == kube.InCluster {
 				inClusterHttpClientFactory := func(_ *PodRequest) (*http.Client, ClientCloser, error) {
 					return http.DefaultClient, nil, nil
+
 				}
-				responses = requestsWithClient(inClusterHttpClientFactory, requests)
+				/*responses = */ requestsWithClient(inClusterHttpClientFactory, requests)
 			} else {
 				outOfClusterHttpClientFactory := func(podRequest *PodRequest) (*http.Client, ClientCloser, error) {
 					portForward, err := kube.PortForward(kubeClient, podRequest.Pod, sailArgs.Port)
@@ -238,18 +238,18 @@ func Cmd() *cobra.Command {
 					}
 					return &client, func() { portForward.Close() }, nil
 				}
-				responses = requestsWithClient(outOfClusterHttpClientFactory, requests)
+				/*responses = */ requestsWithClient(outOfClusterHttpClientFactory, requests)
 			}
 			// println(responses)
 			// TODO: add proper ui instead of temporary printout
-			for _, response := range responses {
-				println(response == nil)
-				// if response.Error != nil {
-				// 	// println(response.Pod.Name + ": " + response.Error.Error())
-				// } else {
-				// 	// println(response.Pod.Name + ": " + strconv.Itoa(response.Response.StatusCode))
-				// }
-			}
+			// for _, response := range responses {
+			// println(response == nil)
+			// if response.Error != nil {
+			// 	// println(response.Pod.Name + ": " + response.Error.Error())
+			// } else {
+			// 	// println(response.Pod.Name + ": " + strconv.Itoa(response.Response.StatusCode))
+			// }
+			// }
 			return nil
 		},
 	}

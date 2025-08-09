@@ -30,12 +30,13 @@ func NewProgressTrackers() *ProgressTrackers {
 	}
 }
 
-func (p *ProgressTrackers) AddProgressBar(title string) *ProgressBar {
+func (p *ProgressTrackers) AddProgressBar(title string, subtitle string) *ProgressBar {
 	progressBar := &ProgressBar{
-		title:   title,
-		model:   progress.New(progress.WithDefaultGradient()),
-		index:   uint64(len(p.model.progressBars)),
-		program: weak.Make(p.program),
+		title:    title,
+		subtitle: subtitle,
+		model:    progress.New(progress.WithDefaultGradient()),
+		index:    uint64(len(p.model.progressBars)),
+		program:  weak.Make(p.program),
 	}
 
 	p.model.progressBars = append(p.model.progressBars, progressBar)
@@ -86,6 +87,12 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		cmds = append(cmds, m.progressBars[msg.index].model.SetPercent(msg.percentage))
 		return m, tea.Batch(cmds...)
 
+	case SetTrackerContent:
+		if m.completed {
+			return m, nil
+		}
+		m.progressBars[msg.index].content = msg.content
+		return m, tickCmd(m.refreshRate)
 	case tea.ResumeMsg:
 		// m.suspending = false
 		return m, nil
@@ -155,4 +162,8 @@ type Completed struct{}
 type SetBarPercentage struct {
 	index      uint64
 	percentage float64
+}
+type SetTrackerContent struct {
+	index   uint64
+	content string
 }
