@@ -9,6 +9,7 @@ import (
 	"sync"
 
 	"github.com/mini-ninja-64/flotilla/internal/kube"
+	"github.com/mini-ninja-64/flotilla/internal/ui"
 	"github.com/mini-ninja-64/flotilla/internal/util"
 	"github.com/spf13/cobra"
 	v1 "k8s.io/api/core/v1"
@@ -22,39 +23,97 @@ type PodHttpResponse struct {
 	Response *http.Response
 	Error    error
 	Pod      *v1.Pod
+	Body     []byte
 }
 
 // TODO: Maybe a `Closable“ interface is more go-ish 🤔
 type ClientCloser = func()
 type ClientFactory = func(*PodRequest) (*http.Client, ClientCloser, error)
 
-func requestWithClient(clientFactory ClientFactory, request *PodRequest) *PodHttpResponse {
+type LengthWriter struct {
+	currentLength uint64
+	writeCallback func(increase uint64, currentLength uint64)
+}
+
+func (progressBuffer *LengthWriter) Write(bytes []byte) (int, error) {
+	bytesLength := len(bytes)
+	bytesLengthUnsigned := uint64(len(bytes))
+	progressBuffer.currentLength += bytesLengthUnsigned
+
+	progressBuffer.writeCallback(bytesLengthUnsigned, progressBuffer.currentLength)
+
+	return bytesLength, nil
+}
+
+func NewLengthWriter(writeCallback func(increase uint64, currentLength uint64)) *LengthWriter {
+	return &LengthWriter{
+		writeCallback: writeCallback,
+	}
+}
+
+func requestWithClient(clientFactory ClientFactory, request *PodRequest) (*http.Response, error) {
 	httpClient, closer, err := clientFactory(request)
 	if err != nil {
-		return &PodHttpResponse{Error: err, Pod: request.Pod}
+		return nil, err
 	}
 	if closer != nil {
 		defer closer()
 	}
 
-	response, err := httpClient.Do(request.Request)
-	if err != nil {
-		return &PodHttpResponse{Error: err, Pod: request.Pod}
-	}
-	return &PodHttpResponse{Response: response, Pod: request.Pod}
+	return httpClient.Do(request.Request)
 }
 
 func requestsWithClient(clientFactory ClientFactory, requests []PodRequest) []*PodHttpResponse {
-	var wg sync.WaitGroup
-	responses := make([]*PodHttpResponse, len(requests))
+	var wgReq sync.WaitGroup
+	requestCount := len(requests)
+	responses := make([]*PodHttpResponse, requestCount)
+
+	progressTrackers := ui.NewProgressTrackers()
+	progressBars := make([]*ui.ProgressBar, requestCount)
+	for i, request := range requests {
+		progressBars[i] = progressTrackers.AddProgressBar(request.Pod.Name)
+	}
 	for idx, req := range requests {
-		wg.Add(1)
+		wgReq.Add(1)
 		go func() {
-			responses[idx] = requestWithClient(clientFactory, &req)
-			wg.Done()
+			response, err := requestWithClient(clientFactory, &req)
+			if err != nil {
+				println(err.Error())
+			}
+
+			defer response.Body.Close()
+
+			contentLength := float64(response.ContentLength)
+			if contentLength < 0 {
+				// println("unknown content length")
+				// TODO: Handle with spinner
+			}
+			index := uint64(idx)
+
+			bodyBuffer := NewLengthWriter(func(uint64, currentLength uint64) {
+				progressBars[index].SetPercentage(float64(currentLength) / contentLength)
+			})
+
+			teeReader := io.TeeReader(response.Body, bodyBuffer)
+			// TODO: use body
+			body, _ := io.ReadAll(teeReader)
+			responses[idx] = &PodHttpResponse{
+				Body: body,
+			}
+			wgReq.Done()
 		}()
 	}
-	wg.Wait()
+
+	progressTrackers.RunAsync()
+	wgReq.Wait()
+
+	progressTrackers.Finish()
+	progressTrackers.Wait()
+
+	for _, res := range responses {
+		println(string(res.Body))
+	}
+
 	return responses
 }
 
@@ -181,16 +240,15 @@ func Cmd() *cobra.Command {
 				}
 				responses = requestsWithClient(outOfClusterHttpClientFactory, requests)
 			}
+			// println(responses)
 			// TODO: add proper ui instead of temporary printout
 			for _, response := range responses {
-				if response.Error != nil {
-					println(response.Pod.Name + ": " + response.Error.Error())
-				} else if response.Response.Body == nil {
-					println(response.Pod.Name + ": " + string(response.Response.StatusCode))
-				} else {
-					bodyBytes, _ := io.ReadAll(response.Response.Body)
-					println(response.Pod.Name + ": " + string(bodyBytes))
-				}
+				println(response == nil)
+				// if response.Error != nil {
+				// 	// println(response.Pod.Name + ": " + response.Error.Error())
+				// } else {
+				// 	// println(response.Pod.Name + ": " + strconv.Itoa(response.Response.StatusCode))
+				// }
 			}
 			return nil
 		},
