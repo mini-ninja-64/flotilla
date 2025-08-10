@@ -81,8 +81,9 @@ func requestsWithClient(clientFactory ClientFactory, requests []PodRequest) []*P
 			response, err := requestWithClient(clientFactory, &req)
 			if err != nil {
 				println(err.Error())
+				wgReq.Done()
+				return
 			}
-
 			defer response.Body.Close()
 
 			contentLength := float64(response.ContentLength)

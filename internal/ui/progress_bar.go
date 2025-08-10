@@ -35,7 +35,7 @@ func (progressBar *ProgressBar) View(pad string) string {
 
 	if progressBar.content != "" {
 		contentStyle := lipgloss.NewStyle().
-			PaddingLeft(len(pad)).
+			PaddingLeft(len(pad) * 2).
 			Render
 		view += "\n" + contentStyle(progressBar.content)
 	}
