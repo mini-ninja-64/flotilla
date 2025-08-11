@@ -202,12 +202,20 @@ func Cmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			pods, _ := kube.GetPodsForService(cmd.Context(), kubeClient, &sailArgs.ServiceName)
+			// TODO: Should have way to override this behaviour
+			pods, service, _ := kube.GetPodsForService(cmd.Context(), kubeClient, &sailArgs.ServiceName)
+			actualPort := sailArgs.Port
+			for _, port := range service.Spec.Ports {
+				if port.Port == int32(sailArgs.Port) {
+					actualPort = uint16(port.TargetPort.IntVal)
+					break
+				}
+			}
 			requests, err := httpRequests(
 				pods,
 				sailArgs.Method,
 				sailArgs.Protocol,
-				sailArgs.Port,
+				actualPort,
 				sailArgs.Headers,
 				sailArgs.Path,
 			)
@@ -219,12 +227,11 @@ func Cmd() *cobra.Command {
 			if kubeClient.ClientType == kube.InCluster {
 				inClusterHttpClientFactory := func(_ *PodRequest) (*http.Client, ClientCloser, error) {
 					return http.DefaultClient, nil, nil
-
 				}
 				/*responses = */ requestsWithClient(inClusterHttpClientFactory, requests)
 			} else {
 				outOfClusterHttpClientFactory := func(podRequest *PodRequest) (*http.Client, ClientCloser, error) {
-					portForward, err := kube.PortForward(kubeClient, podRequest.Pod, sailArgs.Port)
+					portForward, err := kube.PortForward(kubeClient, podRequest.Pod, actualPort)
 					if err != nil {
 						return nil, nil, err
 					}

@@ -118,15 +118,18 @@ func GetClient(kubeconfigOverride string, context string, namespaceOverride stri
 	}, nil
 }
 
-func GetPodsForService(ctx context.Context, kubeClient *KubeClient, serviceName *string) (*corev1.PodList, error) {
+func GetPodsForService(ctx context.Context, kubeClient *KubeClient, serviceName *string) (*corev1.PodList, *corev1.Service, error) {
 	service, err := kubeClient.Client.CoreV1().Services(kubeClient.Namespace).Get(ctx, *serviceName, metav1.GetOptions{})
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	set := labels.Set(service.Spec.Selector)
 	listOptions := metav1.ListOptions{LabelSelector: set.AsSelector().String()}
 	pods, err := kubeClient.Client.CoreV1().Pods(kubeClient.Namespace).List(ctx, listOptions)
-	return pods, err
+	if err != nil {
+		return nil, nil, err
+	}
+	return pods, service, err
 }
 
 func GetClientUsingFlags(command *cobra.Command) (*KubeClient, error) {
