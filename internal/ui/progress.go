@@ -7,6 +7,7 @@ import (
 	"weak"
 
 	"github.com/charmbracelet/bubbles/progress"
+
 	tea "github.com/charmbracelet/bubbletea"
 )
 
@@ -37,9 +38,10 @@ func (p *ProgressTrackers) AddProgressBar(title string, subtitle string) *Progre
 	progressBar := &ProgressBar{
 		title:    title,
 		subtitle: subtitle,
-		model:    progress.New(progress.WithDefaultGradient()),
+		model:    progress.New(progress.WithDefaultGradient(), progress.WithSpringOptions(50, 1)),
 		index:    uint64(len(p.model.progressBars)),
 		program:  weak.Make(p.program),
+		state:    Unknown,
 	}
 
 	p.model.progressBars = append(p.model.progressBars, progressBar)
@@ -80,47 +82,49 @@ func (m *Model) Init() tea.Cmd {
 
 // Update implements tea.Model.
 func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
-	switch msg := msg.(type) {
-	case Completed:
-		m.completed = true
-		return m, tickCmd(m.refreshRate)
-	case SetBarPercentage:
-		if m.completed {
-			return m, nil
-		}
-		cmds := []tea.Cmd{tickCmd(m.refreshRate)}
-		cmds = append(cmds, m.progressBars[msg.index].model.SetPercent(msg.percentage))
-		return m, tea.Batch(cmds...)
-
-	case SetTrackerContent:
-		if m.completed {
-			return m, nil
-		}
-		m.progressBars[msg.index].content = msg.content
-		return m, tickCmd(m.refreshRate)
-	case tea.ResumeMsg:
-		// m.suspending = false
-		return m, nil
-	case tea.KeyMsg:
-		// TODO: is key.Matches better?
-		switch msg.String() {
-		case "ctrl+c":
-			// m.quitting = true
-			return m, tea.Interrupt
-		case "ctrl+z":
-			return m, tea.Suspend
-		}
-		return m, nil
+	cmds := []tea.Cmd{}
+	switch message := msg.(type) {
 
 	case tea.WindowSizeMsg:
 		// m.progress.Width = msg.Width - padding*2 - 4
 		// if m.progress.Width > maxWidth {
 		// 	m.progress.Width = maxWidth
 		// }
-		return m, nil
+	case Completed:
+		m.completed = true
+		cmds = append(cmds, tickCmd(m.refreshRate))
+
+	case SetBarPercentage:
+		if m.completed {
+			break
+		}
+		cmds = append(cmds, tickCmd(m.refreshRate), m.progressBars[message.index].model.SetPercent(message.percentage))
+
+	case SetTrackerText, SetTrackerContent:
+		if m.completed {
+			break
+		}
+		switch message := msg.(type) {
+		case SetTrackerContent:
+			m.progressBars[message.index].content = message.value
+		case SetTrackerText:
+			m.progressBars[message.index].text = message.value
+		}
+
+		cmds = append(cmds, tickCmd(m.refreshRate))
+	case tea.ResumeMsg:
+		// m.suspending = false
+	case tea.KeyMsg:
+		switch message.String() {
+		case "ctrl+c":
+			// TODO: do i need to set quitting true
+			cmds = append(cmds, tea.Interrupt)
+		case "ctrl+z":
+			cmds = append(cmds, tea.Suspend)
+		}
 
 	case tickMsg:
-		cmds := []tea.Cmd{tickCmd(m.refreshRate)}
+		tickCommands := []tea.Cmd{tickCmd(m.refreshRate)}
 		animating := false
 		for _, progressBar := range m.progressBars {
 			animating = progressBar.model.IsAnimating()
@@ -132,24 +136,22 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if !animating && m.completed {
 			cmds = append(cmds, tea.Quit)
 			m.quitting = true
-			return m, tea.Sequence(cmds...)
 		}
 
-		return m, tea.Sequence(cmds...)
+		cmds = append(cmds, tea.Sequence(tickCommands...))
 
 	// FrameMsg is sent when the progress bar wants to animate itself
 	case progress.FrameMsg:
 		commandBatch := make([]tea.Cmd, len(m.progressBars))
 		for i, progressBar := range m.progressBars {
-			progressModel, cmd := progressBar.model.Update(msg)
+			progressModel, cmd := progressBar.model.Update(message)
 			progressBar.model = progressModel.(progress.Model)
 			commandBatch[i] = cmd
 		}
-		return m, tea.Batch(commandBatch...)
-
-	default:
-		return m, nil
+		cmds = append(cmds, tea.Batch(commandBatch...))
 	}
+
+	return m, tea.Batch(cmds...)
 }
 
 func (m *Model) View() string {
@@ -175,7 +177,9 @@ type SetBarPercentage struct {
 	index      uint64
 	percentage float64
 }
-type SetTrackerContent struct {
-	index   uint64
-	content string
+type SetTrackerContent SetTrackerProperty[string]
+type SetTrackerText SetTrackerProperty[string]
+type SetTrackerProperty[T any] struct {
+	index uint64
+	value T
 }

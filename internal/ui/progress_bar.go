@@ -8,12 +8,21 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
+type ProgressState int
+
+const (
+	Unknown ProgressState = iota
+	Success
+	Failure
+)
+
 type ProgressBar struct {
 	model    progress.Model
 	title    string
 	subtitle string
 	text     string
 	content  string
+	state    ProgressState
 
 	index   uint64
 	program weak.Pointer[tea.Program]
@@ -26,12 +35,31 @@ var titleStyle = lipgloss.NewStyle().
 
 var subtitleStyle = lipgloss.NewStyle().
 	Foreground(lipgloss.AdaptiveColor{Light: "#606060ff", Dark: "#979797ff"}).
-	Bold(false).
 	Render
+
+var successStyle = lipgloss.NewStyle().
+	Foreground(lipgloss.AdaptiveColor{Light: "#22ff00ff", Dark: "#22ff00ff"}).
+	Render
+
+var failureStyle = lipgloss.NewStyle().
+	Foreground(lipgloss.AdaptiveColor{Light: "#dc0000ff", Dark: "#dc0000ff"}).
+	Render
+
+func (state ProgressState) style(text string) string {
+	switch state {
+	case Success:
+		return successStyle(text)
+	case Failure:
+		return failureStyle(text)
+	case Unknown:
+		return text
+	}
+	panic("Unreachable")
+}
 
 func (progressBar *ProgressBar) View(pad string) string {
 	view := pad + titleStyle(progressBar.title) + " " + subtitleStyle(progressBar.subtitle) + titleStyle(":") + "\n" +
-		pad + pad + progressBar.model.View() + "\n"
+		pad + pad + progressBar.model.View() + " " + progressBar.state.style(progressBar.text) + "\n"
 
 	if progressBar.content != "" {
 		contentStyle := lipgloss.NewStyle().
@@ -41,11 +69,18 @@ func (progressBar *ProgressBar) View(pad string) string {
 	}
 	return view
 }
+func (progressBar *ProgressBar) SetText(text string) error {
+	progressBar.program.Value().Send(SetTrackerText{
+		index: progressBar.index,
+		value: text,
+	})
+	return nil
+}
 
 func (progressBar *ProgressBar) SetContent(content string) error {
 	progressBar.program.Value().Send(SetTrackerContent{
-		index:   progressBar.index,
-		content: content,
+		index: progressBar.index,
+		value: content,
 	})
 	return nil
 }
@@ -61,4 +96,8 @@ func (progressBar *ProgressBar) SetPercentage(percentage float64) error {
 		percentage: percentage,
 	})
 	return nil
+}
+
+func (progressBar *ProgressBar) SetProgressState(state ProgressState) {
+	progressBar.state = state
 }

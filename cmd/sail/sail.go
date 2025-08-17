@@ -84,13 +84,20 @@ func requestsWithClient(clientFactory ClientFactory, requests []PodRequest) []*P
 				return
 			}
 			defer response.Body.Close()
+			index := uint64(idx)
+
+			progressBars[index].SetText(response.Status)
+			if response.StatusCode >= 200 && response.StatusCode < 300 {
+				progressBars[index].SetProgressState(ui.Success)
+			} else if response.StatusCode >= 400 {
+				progressBars[index].SetProgressState(ui.Failure)
+			}
 
 			contentLength := float64(response.ContentLength)
 			if contentLength < 0 {
 				// println("unknown content length")
 				// TODO: Handle with spinner
 			}
-			index := uint64(idx)
 
 			bodyBuffer := NewLengthWriter(func(uint64, currentLength uint64) {
 				progressBars[index].SetPercentage(float64(currentLength) / contentLength)
