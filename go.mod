@@ -3,7 +3,11 @@ module github.com/mini-ninja-64/flotilla
 go 1.24.5
 
 require (
+	github.com/charmbracelet/bubbles v0.21.0
+	github.com/charmbracelet/bubbletea v1.3.6
 	github.com/charmbracelet/fang v0.3.0
+	github.com/charmbracelet/lipgloss v1.1.0
+	github.com/google/uuid v1.6.0
 	github.com/spf13/cobra v1.9.1
 	k8s.io/api v0.33.3
 	k8s.io/apimachinery v0.33.3
@@ -12,11 +16,8 @@ require (
 
 require (
 	github.com/aymanbagabas/go-osc52/v2 v2.0.1 // indirect
-	github.com/charmbracelet/bubbles v0.21.0 // indirect
-	github.com/charmbracelet/bubbletea v1.3.6 // indirect
 	github.com/charmbracelet/colorprofile v0.3.1 // indirect
 	github.com/charmbracelet/harmonica v0.2.0 // indirect
-	github.com/charmbracelet/lipgloss v1.1.0 // indirect
 	github.com/charmbracelet/lipgloss/v2 v2.0.0-beta.2 // indirect
 	github.com/charmbracelet/x/ansi v0.9.3 // indirect
 	github.com/charmbracelet/x/cellbuf v0.0.13 // indirect
@@ -33,7 +34,6 @@ require (
 	github.com/gogo/protobuf v1.3.2 // indirect
 	github.com/google/gnostic-models v0.6.9 // indirect
 	github.com/google/go-cmp v0.7.0 // indirect
-	github.com/google/uuid v1.6.0 // indirect
 	github.com/gorilla/websocket v1.5.4-0.20250319132907-e064f32e3674 // indirect
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
 	github.com/josharian/intern v1.0.0 // indirect
