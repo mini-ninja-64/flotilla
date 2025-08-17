@@ -15,7 +15,6 @@ import (
 	v1 "k8s.io/api/core/v1"
 )
 
-//TODO: Should resolve svc port -> pod port as required
 //TODO: write tests
 //TODO: Add JSON/YAML output options
 

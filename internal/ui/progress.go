@@ -10,6 +10,9 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 )
 
+// TODO: Try and go full event driven renders
+// TODO: Get rid of final rerender flash
+
 type ProgressTrackers struct {
 	model   *Model
 	program *tea.Program
@@ -21,7 +24,7 @@ type ProgressTrackers struct {
 func NewProgressTrackers() *ProgressTrackers {
 	model := &Model{
 		progressBars: []*ProgressBar{},
-		refreshRate:  time.Millisecond * 250,
+		refreshRate:  time.Millisecond * 50,
 	}
 	program := tea.NewProgram(model)
 	return &ProgressTrackers{
@@ -54,6 +57,7 @@ func (bars *ProgressTrackers) RunAsync() {
 
 func (bars *ProgressTrackers) Wait() error {
 	bars.wg.Wait()
+	print(bars.model.FilteredView(false))
 	return bars.err
 }
 
@@ -66,6 +70,7 @@ type Model struct {
 
 	refreshRate time.Duration
 	completed   bool
+	quitting    bool
 }
 
 // Init implements tea.Model.
@@ -126,6 +131,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		if !animating && m.completed {
 			cmds = append(cmds, tea.Quit)
+			m.quitting = true
 			return m, tea.Sequence(cmds...)
 		}
 
@@ -146,8 +152,14 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 }
 
-// View implements tea.Model.
 func (m *Model) View() string {
+	return m.FilteredView(true)
+}
+
+func (m *Model) FilteredView(printNothingOnQuit bool) string {
+	if printNothingOnQuit && m.quitting {
+		return ""
+	}
 	pad := strings.Repeat(" ", 2)
 	view := "\n"
 	for _, progressBar := range m.progressBars {
